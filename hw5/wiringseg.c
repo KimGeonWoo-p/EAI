@@ -41,7 +41,8 @@ int main(int argc, char** argvs)
 	if (!argc)
 		return -1;
 
-	int i = (int) argvs[i][0];
+	int i = atoi(argvs[1]);
+
 	wiringPiSetup();
 	init_pin();
 

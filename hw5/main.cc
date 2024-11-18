@@ -25,6 +25,7 @@ limitations under the License.
 #include <opencv2/opencv.hpp>
 #include <unistd.h> // sleep 함수
 #include <cstdio>
+#include <sys/wait.h>
 
 // This is an example that is minimal to read a model
 // from disk and perform inference. There is no data being loaded
@@ -134,7 +135,7 @@ int main(int argc, char* argv[]) {
     // be accessed with `T* output = interpreter->typed_output_tensor<T>(i);`
     auto output_tensor = interpreter->typed_output_tensor<float>(0);
 
-    int max_prob = -1;
+    float max_prob = -1;
     int max_idx = -1;
     for(int i=0; i<10; ++i) {
       if (max_prob < output_tensor[i]) {
@@ -154,8 +155,25 @@ int main(int argc, char* argv[]) {
         NULL // 마지막은 항상 NULL
     };
 
-    // execvp 호출
-    execvp(program, args);
+    // 자식 프로세스 생성
+    pid_t pid = fork();
+
+    if (pid == 0) {
+        // 자식 프로세스에서 execvp 호출
+        execvp(program, args);
+
+        // execvp 실패 시 출력 (execvp가 성공하면 이 코드는 실행되지 않음)
+        perror("execvp failed");
+        exit(1);
+    } else if (pid > 0) {
+        // 부모 프로세스에서 자식 프로세스 대기
+        int status;
+        wait(&status); // 자식 프로세스 종료까지 대기
+    } else {
+        // fork 실패
+        perror("fork failed");
+        return 1;
+    }
 
     // 벡터를 OpenCV Mat 객체로 변환
     cv::Mat image(28, 28, CV_8UC1); // 8-bit, 1채널 (흑백 이미지)
@@ -166,7 +184,15 @@ int main(int argc, char* argv[]) {
     }
 
     // 이미지 시각화
-    cv::imshow("Pixel Intensity", image);
+    string windowName = "image";
+    // 창 생성 (비율 유지 가능)
+    cv::namedWindow(windowName, cv::WINDOW_KEEPRATIO);
+
+    // 창 크기 설정 (비율 유지)
+    cv::resizeWindow(windowName, 300, 300);
+
+    // 이미지 표시
+    cv::imshow(windowName, image);
 
     sleep(0.1);
     if (cv::waitKey(25) >= 0)
