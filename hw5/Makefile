@@ -9,7 +9,7 @@ SRCS := main.cpp
 OBJS := $(SRCS:.cpp=.o)
 EXEC := main
 
-all: $(EXEC)
+all: $(EXEC) wiringseg
 
 $(EXEC): $(OBJS)
 	$(CC) $(CFLAGS) $(INCLUDEPATHS) -o $@ $^ $(LDPATH) $(LDFLAGS) `pkg-config --cflags --libs opencv4`
@@ -17,5 +17,9 @@ $(EXEC): $(OBJS)
 %.o: %.cc
 	$(CC) $(CFLAGS) $(INCLUDEPATHS) -c $< -o $@ `pkg-config --cflags --libs opencv4`
 
+wiringseg: wiringseg.c
+	gcc -o wiringseg wiringseg.c -lwiringPi
+	chmod a+x wiringseg
+ 
 clean : 
-	rm -f $(OBJS) $(EXEC)
+	rm -f $(OBJS) $(EXEC) wiringseg

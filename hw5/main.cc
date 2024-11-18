@@ -24,6 +24,7 @@ limitations under the License.
 // for camura
 #include <opencv2/opencv.hpp>
 #include <unistd.h> // sleep 함수
+#include <cstdio>
 
 // This is an example that is minimal to read a model
 // from disk and perform inference. There is no data being loaded
@@ -81,9 +82,6 @@ int main(int argc, char* argv[]) {
   // Allocate tensor buffers.
   TFLITE_MINIMAL_CHECK(interpreter->AllocateTensors() == kTfLiteOk);
 
-  printf("=== Pre-invoke Interpreter State ===\n");
-  tflite::PrintInterpreterState(interpreter.get());
-
   // for video
   cv::VideoCapture video(0);
   if (!video.isOpened())
@@ -93,8 +91,14 @@ int main(int argc, char* argv[]) {
   }
 
   video.set(cv::CAP_PROP_FRAME_WIDTH, 28);
+  video.set(cv::CAP_PROP_FRAME_HEIGHT, 28);
+
   cv::Mat orig;
   cv::Mat gray;
+
+  // 밝기 및 대비 설정 값
+  float alpha = 2; // 대비 (1.0 = 원본, 2.0 = 더 뚜렷함)
+  int beta = 50;      // 밝기 (0 = 원본, 양수 = 더 밝음, 음수 = 더 어두움)
 
   while (video.read(orig))
   {
@@ -102,8 +106,20 @@ int main(int argc, char* argv[]) {
 
     auto input_tensor = interpreter->typed_input_tensor<float>(0);
 
+    // 밝기 및 대비 조정
+    gray.convertTo(gray, -1, alpha, beta);
+
     vector<vector<float>> input_vector;
     read_Mnist(gray, input_vector);
+
+    for (int i = 0; i < 28; ++i){
+      for (int j = 0; j < 28; ++j){
+        if (!(int)((1 - input_vector[i][j]/255.0)*10))
+          input_vector[i][j] = 0;
+        else
+          input_vector[i][j] = 255;
+      }
+    }
 
     for(int i=0; i<28; ++i) // image rows
       for(int j=0; j<28; ++j) // image cols
@@ -112,16 +128,35 @@ int main(int argc, char* argv[]) {
     // Run inference
     TFLITE_MINIMAL_CHECK(interpreter->Invoke() == kTfLiteOk);
 
+    // Read output buffers
+    // TODO(user): Insert getting data out code.
+    // Note: The buffer of the output tensor with index `i` of type T can
+    // be accessed with `T* output = interpreter->typed_output_tensor<T>(i);`
     auto output_tensor = interpreter->typed_output_tensor<float>(0);
 
-    float max = -1;
-    int max_i = 0;
+    int max_prob = -1;
+    int max_idx = -1;
     for(int i=0; i<10; ++i) {
-      printf("label:%d, pred:%f\n", i, output_tensor[i]);
+      if (max_prob < output_tensor[i]) {
+        max_prob = output_tensor[i];
+        max_idx = i;
+      }
     }
 
-    // 결과 출력
-    printf("\n\n\n\n");
+    // 숫자를 문자열로 변환
+    string number_str = to_string(max_idx);
+
+    // 실행할 프로그램과 인수 정의
+    const char* program = "./wiringseg"; // 실행 파일 경로
+    char* args[] = {
+        const_cast<char*>(program), // 실행 파일 이름
+        const_cast<char*>(number_str.c_str()), // 숫자 인자
+        NULL // 마지막은 항상 NULL
+    };
+
+    // execvp 호출
+    execvp(program, args);
+
     // 벡터를 OpenCV Mat 객체로 변환
     cv::Mat image(28, 28, CV_8UC1); // 8-bit, 1채널 (흑백 이미지)
     for (int i = 0; i < 28; ++i) {
@@ -132,10 +167,8 @@ int main(int argc, char* argv[]) {
 
     // 이미지 시각화
     cv::imshow("Pixel Intensity", image);
-    
-    // 1초 정지
-    sleep(0.1);
 
+    sleep(0.1);
     if (cv::waitKey(25) >= 0)
       break;
   }
