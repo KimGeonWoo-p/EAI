@@ -44,6 +44,9 @@ using namespace std;
     exit(1);                                                 \
   }
 
+// camsize
+#define CAMSIZE 320
+
 int main(int argc, char* argv[]) {
   if (argc != 2) {
     fprintf(stderr, "minimal <tflite model>\n");
@@ -54,8 +57,8 @@ int main(int argc, char* argv[]) {
   // (1) Pycam setting
   raspicam::RaspiCam_Cv camera;
   camera.set(cv::CAP_PROP_FORMAT, CV_8UC3);
-  camera.set(cv::CAP_PROP_FRAME_WIDTH, 640);
-  camera.set(cv::CAP_PROP_FRAME_HEIGHT, 640);
+  camera.set(cv::CAP_PROP_FRAME_WIDTH, CAMSIZE);
+  camera.set(cv::CAP_PROP_FRAME_HEIGHT, CAMSIZE);
   if (!camera.open()) {
     cerr << "Error opening the camera" << endl;
     return 1;
@@ -70,10 +73,10 @@ int main(int argc, char* argv[]) {
       cerr << "Error capturing image" << endl;
       break;
     }
-    vector<cv::Mat> input;
+    //vector<cv::Mat> input;
     cv::cvtColor(image, image, cv::COLOR_BGR2RGB);
-    cv::resize(image, image, cv::Size(640, 640));
-    input.push_back(image);
+    cv::resize(image, image, cv::Size(CAMSIZE, CAMSIZE));
+    //input.push_back(image);
    
     // (3) Load model
     std::unique_ptr<tflite::FlatBufferModel> model =
@@ -93,12 +96,12 @@ int main(int argc, char* argv[]) {
 
     // (6) Push image to input tensor
     auto input_tensor = interpreter->typed_input_tensor<float>(0);
-    for (int i=0; i<640; i++){
-      for (int j=0; j<640; j++){   
-        cv::Vec3b pixel = input[0].at<cv::Vec3b>(i, j);
-        *(input_tensor + i * 640*3 + j * 3) = ((float)pixel[0])/255.0;
-        *(input_tensor + i * 640*3 + j * 3 + 1) = ((float)pixel[1])/255.0;
-        *(input_tensor + i * 640*3 + j * 3 + 2) = ((float)pixel[2])/255.0;
+    for (int i=0; i<CAMSIZE; i++){
+      for (int j=0; j<CAMSIZE; j++){   
+        cv::Vec3b pixel = image.at<cv::Vec3b>(i, j);
+        *(input_tensor + i * CAMSIZE*3 + j * 3) = ((float)pixel[0])/255.0;
+        *(input_tensor + i * CAMSIZE*3 + j * 3 + 1) = ((float)pixel[1])/255.0;
+        *(input_tensor + i * CAMSIZE*3 + j * 3 + 2) = ((float)pixel[2])/255.0;
       }
     }
     // (7) Run inference
