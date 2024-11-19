@@ -64,7 +64,7 @@ void drawDetections(cv::Mat& frame, const cv::Mat& output, float confThreshold, 
   }
 }
 
-int main() {
+int main(int argc, char* argv[]) {
   if (argc != 2) {
     fprintf(stderr, "minimal <tflite model>\n");
     return 1;
@@ -81,7 +81,7 @@ int main() {
   cv::VideoCapture video(0);
   if (!video.isOpened())
   {
-    cout << "Unable to get video from the camera!" << endl;
+    std::cout << "Unable to get video from the camera!\n";
     return -1;
   }
 
@@ -105,6 +105,8 @@ int main() {
     // 시각화
     float confThreshold = 0.5;  // Confidence 임계값
     float nmsThreshold = 0.4;   // NMS 임계값
+
+    std::vector<std::string> classNames = {"bird","deer","egretta","hare","sheep","wild boar","wild cat"};
     drawDetections(frame, output, confThreshold, nmsThreshold, classNames);
 
     // 결과 이미지 출력
