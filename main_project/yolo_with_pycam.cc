@@ -12,6 +12,8 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
+#include <cstdlib>
+
 #include <cstdio>
 #include <vector>
 #include <iostream>
@@ -25,7 +27,6 @@ limitations under the License.
 #include "opencv2/highgui/highgui.hpp"
 #include "opencv2/core/core.hpp"
 #include "yolo_with_pycam.h"
-#include <raspicam/raspicam_cv.h>
 // This is an example that is minimal to read a model
 // from disk and perform inference. There is no data being loaded
 // that is up to you to add as a user.
@@ -44,55 +45,56 @@ using namespace std;
     exit(1);                                                 \
   }
 
-// camsize
-#define CAMSIZE 320
-
 int main(int argc, char* argv[]) {
-  if (argc != 2) {
+  if (argc  < 3) {
     fprintf(stderr, "minimal <tflite model>\n");
     return 1;
   }
   const char* filename = argv[1];
+  int CAMSIZE = atoi(argv[2]);
   
-  // (1) Pycam setting
-  raspicam::RaspiCam_Cv camera;
-  camera.set(cv::CAP_PROP_FORMAT, CV_8UC3);
-  camera.set(cv::CAP_PROP_FRAME_WIDTH, CAMSIZE);
-  camera.set(cv::CAP_PROP_FRAME_HEIGHT, CAMSIZE);
-  if (!camera.open()) {
-    cerr << "Error opening the camera" << endl;
-    return 1;
+  // (1) Camera setting
+  
+  // for video
+  cv::VideoCapture video(0);
+  if (!video.isOpened())
+  {
+    cout << "Unable to get video from the camera!" << endl;
+    return -1;
   }
-  while (true) {
-    // (2) Load image from Pycam
-    cv::Mat image;
-    camera.grab();
-    camera.retrieve(image);
-    cv::imshow("Yolo example with Pycam", image);
+
+  video.set(cv::CAP_PROP_FRAME_WIDTH, CAMSIZE);
+  video.set(cv::CAP_PROP_FRAME_HEIGHT, CAMSIZE);
+  cv::Mat image;
+
+  // (2) Load model
+  std::unique_ptr<tflite::FlatBufferModel> model =
+    tflite::FlatBufferModel::BuildFromFile(filename);
+  TFLITE_MINIMAL_CHECK(model != nullptr);
+
+  // (3) Build interpreter
+  tflite::ops::builtin::BuiltinOpResolver resolver;
+  tflite::InterpreterBuilder builder(*model, resolver);
+  std::unique_ptr<tflite::Interpreter> interpreter;
+  builder(&interpreter);
+  TFLITE_MINIMAL_CHECK(interpreter != nullptr);
+
+  // (4) Allocate tensor buffers.
+  TFLITE_MINIMAL_CHECK(interpreter->AllocateTensors() == kTfLiteOk);
+  printf("=== Pre-invoke Interpreter State ===\n");
+
+  // (5) load image
+  while (video.read(image)) {
     if (image.empty()) {
       cerr << "Error capturing image" << endl;
       break;
     }
+    cv::imshow("Yolo example with Pycam", image);
+
     //vector<cv::Mat> input;
     cv::cvtColor(image, image, cv::COLOR_BGR2RGB);
     cv::resize(image, image, cv::Size(CAMSIZE, CAMSIZE));
     //input.push_back(image);
-   
-    // (3) Load model
-    std::unique_ptr<tflite::FlatBufferModel> model =
-        tflite::FlatBufferModel::BuildFromFile(filename);
-    TFLITE_MINIMAL_CHECK(model != nullptr);
-
-    // (4) Build interpreter
-    tflite::ops::builtin::BuiltinOpResolver resolver;
-    tflite::InterpreterBuilder builder(*model, resolver);
-    std::unique_ptr<tflite::Interpreter> interpreter;
-    builder(&interpreter);
-    TFLITE_MINIMAL_CHECK(interpreter != nullptr);
-
-    // (5) Allocate tensor buffers.
-    TFLITE_MINIMAL_CHECK(interpreter->AllocateTensors() == kTfLiteOk);
-    printf("=== Pre-invoke Interpreter State ===\n");
 
     // (6) Push image to input tensor
     auto input_tensor = interpreter->typed_input_tensor<float>(0);
@@ -122,8 +124,8 @@ int main(int argc, char* argv[]) {
     }
   }
   // (10) release
-  camera.release();
-	cv::destroyAllWindows();
+  cv::destroyAllWindows();
+  video.release();
   return 0;
 }
 
