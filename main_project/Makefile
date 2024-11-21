@@ -13,10 +13,10 @@ EXEC := yolo_with_pycam
 all: $(EXEC)
 
 $(EXEC): $(OBJS)
-	$(CC) $(CFLAGS) $(INCLUDEPATHS) -o $@ $^ $(LDPATH) $(LDFLAGS)  `pkg-config --cflags --libs opencv4`
+	$(CC) $(CFLAGS) $(INCLUDEPATHS) -o $@ $^ $(LDPATH) $(LDFLAGS)  
 
 %.o: %.cc
-	$(CC) $(CFLAGS) $(INCLUDEPATHS) -c $< -o $@   `pkg-config --cflags --libs opencv4`
+	$(CC) $(CFLAGS) $(INCLUDEPATHS) -c $< -o $@   
 
 clean : 
 	rm -f $(OBJS) $(EXEC)

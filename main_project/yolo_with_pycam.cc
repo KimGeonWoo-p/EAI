@@ -27,6 +27,8 @@ limitations under the License.
 #include "opencv2/highgui/highgui.hpp"
 #include "opencv2/core/core.hpp"
 #include "yolo_with_pycam.h"
+#include <raspicam/raspicam_cv.h>
+
 // This is an example that is minimal to read a model
 // from disk and perform inference. There is no data being loaded
 // that is up to you to add as a user.
@@ -46,31 +48,29 @@ using namespace std;
   }
 
 int main(int argc, char* argv[]) {
-  if (argc  < 3) {
+  if (argc  != 3) {
     fprintf(stderr, "minimal <tflite model>\n");
     return 1;
   }
   const char* filename = argv[1];
   int CAMSIZE = atoi(argv[2]);
-  
-  // (1) Camera setting
-  
-  // for video
-  cv::VideoCapture video(0);
-  if (!video.isOpened())
-  {
-    cout << "Unable to get video from the camera!" << endl;
-    return -1;
-  }
 
-  video.set(cv::CAP_PROP_FRAME_WIDTH, CAMSIZE);
-  video.set(cv::CAP_PROP_FRAME_HEIGHT, CAMSIZE);
-  cv::Mat image;
+  // (1) Pycam setting
+  raspicam::RaspiCam_Cv camera;
+  camera.set(cv::CAP_PROP_FORMAT, CV_8UC3);
+  camera.set(cv::CAP_PROP_FRAME_WIDTH, 640);
+  camera.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
+  if (!camera.open()) {
+    cerr << "Error opening the camera" << endl;
+    return 1;
+  }
+  printf("비디오 세팅 완료! 해상도: %d\n", CAMSIZE);
 
   // (2) Load model
   std::unique_ptr<tflite::FlatBufferModel> model =
     tflite::FlatBufferModel::BuildFromFile(filename);
   TFLITE_MINIMAL_CHECK(model != nullptr);
+  printf("모델 로드 완료\n");
 
   // (3) Build interpreter
   tflite::ops::builtin::BuiltinOpResolver resolver;
@@ -78,23 +78,28 @@ int main(int argc, char* argv[]) {
   std::unique_ptr<tflite::Interpreter> interpreter;
   builder(&interpreter);
   TFLITE_MINIMAL_CHECK(interpreter != nullptr);
+  printf("인터프리터 빌드 완료\n");
 
-  // (4) Allocate tensor buffers.
-  TFLITE_MINIMAL_CHECK(interpreter->AllocateTensors() == kTfLiteOk);
-  printf("=== Pre-invoke Interpreter State ===\n");
+  while (1) {
+    // (4) Load image from Pycam
+    cv::Mat image;
+    camera.grab();
+    camera.retrieve(image);
+    printf("카메라에서 이미지 불러옴\n");
 
-  // (5) load image
-  while (video.read(image)) {
+    cv::imshow("Yolo example with Pycam", image);
     if (image.empty()) {
       cerr << "Error capturing image" << endl;
       break;
     }
-    cv::imshow("Yolo example with Pycam", image);
 
-    //vector<cv::Mat> input;
     cv::cvtColor(image, image, cv::COLOR_BGR2RGB);
     cv::resize(image, image, cv::Size(CAMSIZE, CAMSIZE));
-    //input.push_back(image);
+    printf("이미지 로드!\n");
+
+    // (5) Allocate tensor buffers.
+    TFLITE_MINIMAL_CHECK(interpreter->AllocateTensors() == kTfLiteOk);
+    printf("=== Pre-invoke Interpreter State ===\n");
 
     // (6) Push image to input tensor
     auto input_tensor = interpreter->typed_input_tensor<float>(0);
@@ -106,26 +111,32 @@ int main(int argc, char* argv[]) {
         *(input_tensor + i * CAMSIZE*3 + j * 3 + 2) = ((float)pixel[2])/255.0;
       }
     }
+    printf("인풋텐서 생성 완료!\n");
+
     // (7) Run inference
     TFLITE_MINIMAL_CHECK(interpreter->Invoke() == kTfLiteOk);
     printf("\n\n=== Post-invoke Interpreter State ===\n");
+    printf("추론 실행!\n");
 
     // (8) Output parsing
     TfLiteTensor* cls_tensor = interpreter->output_tensor(1);
     TfLiteTensor* loc_tensor = interpreter->output_tensor(0);
     yolo_output_parsing(cls_tensor, loc_tensor);
+    printf("결과 parsing!\n");
 
     // (9) Output visualize
     yolo_output_visualize(image);
+    printf("결과 시각화!\n");
 
-    char key = cv::waitKey(1);
+    char key = cv::waitKey(2);
     if (key == 'q') {
         break;
     }
   }
+
   // (10) release
-  cv::destroyAllWindows();
-  video.release();
+  camera.release();
+	cv::destroyAllWindows();
   return 0;
 }
 

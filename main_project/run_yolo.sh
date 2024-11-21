@@ -1,1 +1,1 @@
-./minimal_yolo ../models/yolov4-tiny-416.tflite
+./yolo_with_pycam ./best-int8.tflite
