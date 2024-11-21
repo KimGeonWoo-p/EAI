@@ -3,6 +3,10 @@
 #include <raspicam/raspicam_cv.h>
 #include <vector>
 
+#include "tensorflow/lite/kernels/register.h"
+#include "tensorflow/lite/interpreter.h"
+#include "tensorflow/lite/interpreter_builder.h"
+
 // Namespaces.
 using namespace cv;
 using namespace std;
@@ -134,7 +138,7 @@ int main()
 {
     int CAMSIZE = 160;
 
-    // (1) Pycam setting
+    // Pycam setting
     raspicam::RaspiCam_Cv camera;
     camera.set(cv::CAP_PROP_FORMAT, CV_8UC3);
     camera.set(cv::CAP_PROP_FRAME_WIDTH, 640);
@@ -145,17 +149,9 @@ int main()
     }
     printf("비디오 세팅 완료! 해상도: %d\n", CAMSIZE);
 
-    // (2) Load model
+    // Load model
     Net net;
-    net = readNet("best-fp16.tflite");
-
-    // (3) Build interpreter
-    tflite::ops::builtin::BuiltinOpResolver resolver;
-    tflite::InterpreterBuilder builder(*model, resolver);
-    std::unique_ptr<tflite::Interpreter> interpreter;
-    builder(&interpreter);
-    TFLITE_MINIMAL_CHECK(interpreter != nullptr);
-    printf("인터프리터 빌드 완료\n");
+    net = cv::dnn::readNetFromTFLite("best-fp16.tflite");
 
     // Load class list.
     vector<string> class_list;
@@ -166,12 +162,12 @@ int main()
         class_list.push_back(line);
     }
 
-    int rows = 3*(CAMSIZE*CAMSIZE+(CAMSIZE/2)*(CAMSIZE/2)+(CAMSIZE/4)*(CAMSIZE/4))
+    int rows = 3*(CAMSIZE*CAMSIZE+(CAMSIZE/2)*(CAMSIZE/2)+(CAMSIZE/4)*(CAMSIZE/4));
     int demensions = class_list.size();
 
     while (1) {
         // (2) Load image from Pycam
-        cv::Mat image;
+        Mat image;
         camera.grab();
         camera.retrieve(image);
         cv::cvtColor(image, image, cv::COLOR_BGR2RGB);
@@ -192,7 +188,7 @@ int main()
 
         vector<Mat> detections;     // Process the image.
         detections = pre_process(image, net);
-        Mat img = post_process(image.clone(), detections, class_list, rows, demensions);
+        Mat img = post_process(image, detections, class_list, rows, demensions);
 
         // Put efficiency information.
         // The function getPerfProfile returns the overall time for nference(t) and the timings for each of the layers(in layersTimes).
