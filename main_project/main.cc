@@ -3,10 +3,6 @@
 #include <raspicam/raspicam_cv.h>
 #include <vector>
 
-#include "tensorflow/lite/kernels/register.h"
-#include "tensorflow/lite/interpreter.h"
-#include "tensorflow/lite/interpreter_builder.h"
-
 // Namespaces.
 using namespace cv;
 using namespace std;
@@ -51,13 +47,13 @@ vector<Mat> pre_process(Mat &input_image, Net &net)
     // Convert to blob.
     Mat blob;
     blobFromImage(input_image, blob, 1./255., Size(INPUT_WIDTH, INPUT_HEIGHT), Scalar(), true, false);
- 
+    cout <<"\tblobFromImage!\n"; 
     net.setInput(blob);
- 
+    cout <<"\tsetInput!\n"; 
     // Forward propagate.
     vector<Mat> outputs;
     net.forward(outputs, net.getUnconnectedOutLayersNames());
- 
+    cout <<"\tforward!";
     return outputs;
 }
 
@@ -151,7 +147,7 @@ int main()
 
     // Load model
     Net net;
-    net = cv::dnn::readNetFromTFLite("best-fp16.tflite");
+    net = cv::dnn::readNet("best.onnx");
 
     // Load class list.
     vector<string> class_list;
@@ -188,15 +184,10 @@ int main()
 
         vector<Mat> detections;     // Process the image.
         detections = pre_process(image, net);
+	cout << "이미지 전처리 성공!\n";
         Mat img = post_process(image, detections, class_list, rows, demensions);
+	cout << "이미지 후처리 성공\n";
 
-        // Put efficiency information.
-        // The function getPerfProfile returns the overall time for nference(t) and the timings for each of the layers(in layersTimes).
-        vector<double> layersTimes;
-        double freq = getTickFrequency() / 1000;
-        double t = net.getPerfProfile(layersTimes) / freq;
-        string label = format("Inference time : %.2f ms", t);
-        putText(img, label, Point(20, 40), FONT_FACE, FONT_SCALE, RED);
         imshow("Output", img);
         waitKey(0);
     }
