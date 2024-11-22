@@ -46,71 +46,176 @@ using namespace std;
     exit(1);                                                 \
   }
 
-// YOLO 출력 디코딩 함수
-std::vector<std::tuple<cv::Rect, float, int>> decode_predictions(
-    const float* output, int rows, int cols, float conf_threshold, float iou_threshold) {
+
+// 구조체로 바운딩 박스 표현
+struct BoundingBox {
+    float x;      // 중심 x 좌표
+    float y;      // 중심 y 좌표
+    float width;  // 너비
+    float height; // 높이
+    float confidence; // 신뢰도 점수
+    int class_id; // 클래스 ID
+};
+
+// 시그모이드 함수
+float sigmoid(float x) {
+    return 1 / (1 + std::exp(-x));
+}
+
+float calculate_iou(const BoundingBox& box1, const BoundingBox& box2) {
+    // 두 박스의 교집합 좌표 계산
+    float x1 = std::max(box1.x - box1.width / 2, box2.x - box2.width / 2);
+    float y1 = std::max(box1.y - box1.height / 2, box2.y - box2.height / 2);
+    float x2 = std::min(box1.x + box1.width / 2, box2.x + box2.width / 2);
+    float y2 = std::min(box1.y + box1.height / 2, box2.y + box2.height / 2);
+
+    // 교집합 영역 계산
+    float intersection = std::max(0.0f, x2 - x1) * std::max(0.0f, y2 - y1);
+
+    // 합집합 영역 계산
+    float union_area = box1.width * box1.height + box2.width * box2.height - intersection;
+
+    // IoU 반환
+    return intersection / union_area;
+}
+
+// NMS 수행 함수
+// NMS 함수
+std::vector<int> non_max_suppression(const std::vector<BoundingBox>& boxes, float iou_threshold) {
+    std::vector<int> indices;
+    std::vector<bool> suppressed(boxes.size(), false);
+
+    for (size_t i = 0; i < boxes.size(); ++i) {
+        if (suppressed[i]) continue;
+
+        indices.push_back(i);
+        for (size_t j = i + 1; j < boxes.size(); ++j) {
+            if (suppressed[j]) continue;
+
+            // IoU 계산
+            float iou = calculate_iou(boxes[i], boxes[j]);
+            if (iou > iou_threshold) {
+                suppressed[j] = true;
+            }
+        }
+    }
+
+    return indices;
+}
+
+// YOLO 디코딩 함수
+std::vector<BoundingBox> decode_predictions(const float* output, int num_detections, int num_classes, float conf_threshold, float iou_threshold, int image_width, int image_height) {
     std::vector<cv::Rect> boxes;
     std::vector<float> confidences;
     std::vector<int> class_ids;
 
-    for (int i = 0; i < rows; ++i) {
-        const float* detection = &output[i * cols];
-        float confidence = detection[4];  // Confidence score
+    for (int i = 0; i < num_detections; ++i) {
+        const float* detection = output + i * (num_classes + 5);
+
+        float confidence = detection[4];
         if (confidence > conf_threshold) {
-            // 바운딩 박스 정보
-            float center_x = detection[0];
-            float center_y = detection[1];
-            float width = detection[2];
-            float height = detection[3];
-
-            int left = static_cast<int>(center_x - width / 2);
-            int top = static_cast<int>(center_y - height / 2);
-            int right = static_cast<int>(center_x + width / 2);
-            int bottom = static_cast<int>(center_y + height / 2);
-
-            // 클래스 ID 및 신뢰도
-            float max_prob = 0;
+            float x = detection[0];       // 중심 x 좌표 (정규화)
+            float y = detection[1];       // 중심 y 좌표 (정규화)
+            float width = detection[2];   // 박스 너비 (정규화)
+            float height = detection[3];  // 박스 높이 (정규화)
+/*
+            // 디버깅용 로그
+            std::cout << "Raw Bounding Box: x=" << x
+                      << ", y=" << y
+                      << ", width=" << width
+                      << ", height=" << height << std::endl;
+*/
+            // 클래스 ID 및 클래스 점수
+            float max_class_score = 0.0f;
             int class_id = -1;
-            for (int j = 5; j < cols; ++j) {
-                if (detection[j] > max_prob) {
-                    max_prob = detection[j];
-                    class_id = j - 5;
+            for (int j = 0; j < num_classes; ++j) {
+                float class_score = detection[5 + j];
+                if (class_score > max_class_score) {
+                    max_class_score = class_score;
+                    class_id = j;
                 }
             }
 
-            // 저장
-            boxes.emplace_back(left, top, width, height);
-            confidences.push_back(max_prob);
-            class_ids.push_back(class_id);
+            float final_score = confidence * max_class_score;
+            if (final_score > conf_threshold) {
+                // 좌표 변환: 정규화된 값을 이미지 크기 기준으로 변환
+                int left = static_cast<int>((x - width / 2) * image_width);
+                int top = static_cast<int>((y - height / 2) * image_height);
+                int box_width = static_cast<int>(width * image_width);
+                int box_height = static_cast<int>(height * image_height);
+
+                // OpenCV 박스 저장
+                boxes.emplace_back(left, top, box_width, box_height);
+                confidences.push_back(final_score);
+                class_ids.push_back(class_id);
+            }
         }
     }
 
-    // NMS (OpenCV 제공)
+    // NMS 적용
     std::vector<int> indices;
     cv::dnn::NMSBoxes(boxes, confidences, conf_threshold, iou_threshold, indices);
 
-    // 결과 저장
-    std::vector<std::tuple<cv::Rect, float, int>> results;
+    std::vector<BoundingBox> results;
     for (int idx : indices) {
-        results.emplace_back(boxes[idx], confidences[idx], class_ids[idx]);
+        const auto& box = boxes[idx];
+        BoundingBox bbox;
+        bbox.x = box.x;
+        bbox.y = box.y;
+        bbox.width = box.width;
+        bbox.height = box.height;
+        bbox.confidence = confidences[idx];
+        bbox.class_id = class_ids[idx];
+        results.push_back(bbox);
     }
 
     return results;
 }
 
-void visualize_results(cv::Mat& image, const std::vector<std::tuple<cv::Rect, float, int>>& results) {
-  for (const auto& result : results) {
-    const cv::Rect& box = std::get<0>(result);       // 바운딩 박스
-    const float& confidence = std::get<1>(result);  // 신뢰도
-    const int& class_id = std::get<2>(result);      // 클래스 ID
+// 바운딩 박스를 이미지에 그리는 함수
+cv::Mat draw_detections(cv::Mat img, const std::vector<BoundingBox>& detections, int image_width, int image_height) {
+    for (const auto& box : detections) {
+       // 디버깅: 원본 좌표와 크기 출력
+       std::cout << "Raw Detection: x=" << box.x
+         << ", y=" << box.y
+         << ", width=" << box.width
+         << ", height=" << box.height
+         << ", confidence=" << box.confidence
+         << ", class_id=" << box.class_id << std::endl;
 
-    // 바운딩 박스 그리기
-    cv::rectangle(image, box, cv::Scalar(0, 255, 0), 2);
+        // 바운딩 박스 좌표 계산
+        int x1 = static_cast<int>((box.x - box.width / 2));
+        int y1 = static_cast<int>((box.y - box.height / 2));
+        int x2 = static_cast<int>((box.x + box.width / 2));
+        int y2 = static_cast<int>((box.y + box.height / 2));
 
-    // 텍스트 표시
-    std::string label = "Class: " + std::to_string(class_id) + " Conf: " + std::to_string(confidence);
-    cv::putText(image, label, cv::Point(box.x, box.y - 10), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 1);
-  }
+        // 좌표 클리핑
+        x1 = std::max(0, std::min(image_width - 1, x1));
+        y1 = std::max(0, std::min(image_height - 1, y1));
+        x2 = std::max(0, std::min(image_width - 1, x2));
+        y2 = std::max(0, std::min(image_height - 1, y2));
+
+        // 디버깅: 계산된 좌표 출력
+        std::cout << "Calculated Coordinates: x1=" << x1
+                  << ", y1=" << y1
+                  << ", x2=" << x2
+                  << ", y2=" << y2 << std::endl;
+
+        // 바운딩 박스 그리기
+        cv::rectangle(img, cv::Point(x1, y1), cv::Point(x2, y2), cv::Scalar(0, 255, 0), 2);
+	if (x2 <= x1 || y2 <= y1) {
+            std::cerr << "Invalid box size: width=" << (x2 - x1)
+                      << ", height=" << (y2 - y1) << std::endl;
+            return img;
+        }
+
+        // 라벨 그리기
+        std::ostringstream label;
+        label << "Class " << box.class_id << ": " << std::fixed << std::setprecision(2) << box.confidence;
+        cv::putText(img, label.str(), cv::Point(x1, y1 - 10), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 0), 2);
+    }
+
+    return img;
 }
 
 int main(int argc, char* argv[]) {
@@ -124,8 +229,8 @@ int main(int argc, char* argv[]) {
   // (1) Pycam setting
   raspicam::RaspiCam_Cv camera;
   camera.set(cv::CAP_PROP_FORMAT, CV_8UC3);
-  camera.set(cv::CAP_PROP_FRAME_WIDTH, 640);
-  camera.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
+  camera.set(cv::CAP_PROP_FRAME_WIDTH, CAMSIZE);
+  camera.set(cv::CAP_PROP_FRAME_HEIGHT, CAMSIZE);
   if (!camera.open()) {
     cerr << "Error opening the camera" << endl;
     return 1;
@@ -139,7 +244,7 @@ int main(int argc, char* argv[]) {
     camera.retrieve(image);
     printf("카메라에서 이미지 불러옴\n");
     cv::cvtColor(image, image, cv::COLOR_BGR2RGB);
-    cv::imshow("Yolo example with Pycam", image);
+
     if (image.empty()) {
       cerr << "Error capturing image" << endl;
       break;
@@ -190,33 +295,35 @@ int main(int argc, char* argv[]) {
     printf("추론 실행!\n");
 
     // (8) Output parsing
-    TfLiteTensor* output_tensor = interpreter->output_tensor(0);
+    TfLiteTensor* output_tensor = interpreter->tensor(interpreter->outputs()[0]);
+    const float* output_data = output_tensor->data.f; // 출력 데이터 접근
 
-    // 데이터 접근
-    const float* output_data = output_tensor->data.f;
+    // 출력 텐서 크기 정보
+    int num_detections = output_tensor->dims->data[1];
+    int num_classes = output_tensor->dims->data[2] - 5;
 
-    // 행(row) 수와 열(col) 수 계산
-    int rows = output_tensor->dims->data[0];  // Total rows (e.g., 1575)
-    int cols = output_tensor->dims->data[1];  // Attributes per box (e.g., 85)
+    // YOLO 디코딩
+    float conf_threshold = 0.5;
+    float iou_threshold = 0.4;
 
-    constexpr float conf_threshold = 0.5;
-    constexpr float iou_threshold = 0.4;
+    std::vector<BoundingBox> results = decode_predictions(output_data, num_detections, num_classes, conf_threshold, iou_threshold, CAMSIZE, CAMSIZE);
 
-    // (9) YOLO 출력 디코딩
-    auto results = decode_predictions(output_data, rows, cols, conf_threshold, iou_threshold);
-
-    // (10) 결과 시각화
-    visualize_results(image, results);
-
-    // (8) Output parsing
-    TfLiteTensor* cls_tensor = interpreter->output_tensor(1);
-    TfLiteTensor* loc_tensor = interpreter->output_tensor(0);
-    yolo_output_parsing(cls_tensor, loc_tensor);
+/*
+    // 결과 출력
+    for (const auto& box : results) {
+      std::cout << "BoundingBox: [x=" << box.x << ", y=" << box.y
+                << ", width=" << box.width << ", height=" << box.height
+                << ", confidence=" << box.confidence
+                << ", class_id=" << box.class_id << "]" << std::endl;
+    }
+*/
 
     // (9) Output visualize
-    yolo_output_visualize(image);
+    image = draw_detections(image, results, CAMSIZE, CAMSIZE);
 
-    char key = cv::waitKey(2);
+    cv::imshow("Yolo example with Pycam", image);
+
+    char key = cv::waitKey(1);
     if (key == 'q') {
         break;
     }
