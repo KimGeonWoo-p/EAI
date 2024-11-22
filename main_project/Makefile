@@ -7,9 +7,9 @@ LDPATH := -L${HOME}/tensorflow/tensorflow/lite/tools/make/gen/bbb_armv7l/lib\
 	  -L${HOME}/tensorflow/tensorflow/lite/tools/make/downloads/flatbuffers/build\
 	  -L/usr/local/lib/arm-linux-gnueabihf
 
-SRCS := main.cc
+SRCS := yolo_with_pycam.cc
 OBJS := $(SRCS:.cc=.o)
-EXEC := main
+EXEC := yolo_with_pycam
 
 all: $(EXEC)
 

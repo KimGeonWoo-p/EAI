@@ -207,14 +207,15 @@ int main(int argc, char* argv[]) {
 
     // (10) 결과 시각화
     visualize_results(image, results);
-/*
+
+    // (8) Output parsing
+    TfLiteTensor* cls_tensor = interpreter->output_tensor(1);
+    TfLiteTensor* loc_tensor = interpreter->output_tensor(0);
     yolo_output_parsing(cls_tensor, loc_tensor);
-    printf("결과 parsing!\n");
 
     // (9) Output visualize
     yolo_output_visualize(image);
-    printf("결과 시각화!\n");
-*/
+
     char key = cv::waitKey(2);
     if (key == 'q') {
         break;
