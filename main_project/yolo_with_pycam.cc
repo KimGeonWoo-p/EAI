@@ -1,17 +1,3 @@
-/* Copyright 2018 The TensorFlow Authors. All Rights Reserved.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-==============================================================================*/
 #include <cstdlib>
 #include <cstdio>
 #include <vector>
@@ -28,16 +14,6 @@ limitations under the License.
 #include "yolo_with_pycam.h"
 #include <raspicam/raspicam_cv.h>
 
-// This is an example that is minimal to read a model
-// from disk and perform inference. There is no data being loaded
-// that is up to you to add as a user.
-//
-// NOTE: Do not add any dependencies to this that cannot be built with
-// the minimal makefile. This example must remain trivial to build with
-// the minimal build tool.
-//
-// Usage: ./minimal_yolo <tflite model>
-
 using namespace std;
 
 #define TFLITE_MINIMAL_CHECK(x)                              \
@@ -46,21 +22,13 @@ using namespace std;
     exit(1);                                                 \
   }
 
+using namespace std;
 
-// 구조체로 바운딩 박스 표현
-struct BoundingBox {
-    float x;      // 중심 x 좌표
-    float y;      // 중심 y 좌표
-    float width;  // 너비
-    float height; // 높이
-    float confidence; // 신뢰도 점수
-    int class_id; // 클래스 ID
-};
-
-// 시그모이드 함수
-float sigmoid(float x) {
-    return 1 / (1 + std::exp(-x));
-}
+#define TFLITE_MINIMAL_CHECK(x)                              \
+  if (!(x)) {                                                \
+    fprintf(stderr, "Error at %s:%d\n", __FILE__, __LINE__); \
+    exit(1);                                                 \
+  }
 
 float calculate_iou(const BoundingBox& box1, const BoundingBox& box2) {
     // 두 박스의 교집합 좌표 계산
@@ -91,7 +59,7 @@ std::vector<int> non_max_suppression(const std::vector<BoundingBox>& boxes, floa
         indices.push_back(i);
         for (size_t j = i + 1; j < boxes.size(); ++j) {
             if (suppressed[j]) continue;
-
+            
             // IoU 계산
             float iou = calculate_iou(boxes[i], boxes[j]);
             if (iou > iou_threshold) {
@@ -99,7 +67,6 @@ std::vector<int> non_max_suppression(const std::vector<BoundingBox>& boxes, floa
             }
         }
     }
-
     return indices;
 }
 
@@ -135,17 +102,18 @@ std::vector<BoundingBox> decode_predictions(const float* output, int num_detecti
                     class_id = j;
                 }
             }
-
+            
             float final_score = confidence * max_class_score;
             if (final_score > conf_threshold) {
                 // 좌표 변환: 정규화된 값을 이미지 크기 기준으로 변환
-                int left = static_cast<int>((x - width / 2) * image_width);
-                int top = static_cast<int>((y - height / 2) * image_height);
+                int x_pos = static_cast<int>(x * image_width);
+                int y_pos = static_cast<int>(y * image_height);
                 int box_width = static_cast<int>(width * image_width);
                 int box_height = static_cast<int>(height * image_height);
 
+
                 // OpenCV 박스 저장
-                boxes.emplace_back(left, top, box_width, box_height);
+                boxes.emplace_back(x_pos, y_pos, box_width, box_height);
                 confidences.push_back(final_score);
                 class_ids.push_back(class_id);
             }
@@ -203,10 +171,11 @@ cv::Mat draw_detections(cv::Mat img, const std::vector<BoundingBox>& detections,
 
         // 바운딩 박스 그리기
         cv::rectangle(img, cv::Point(x1, y1), cv::Point(x2, y2), cv::Scalar(0, 255, 0), 2);
-	if (x2 <= x1 || y2 <= y1) {
+        if (x2 <= x1 || y2 <= y1) {
             std::cerr << "Invalid box size: width=" << (x2 - x1)
                       << ", height=" << (y2 - y1) << std::endl;
             return img;
+
         }
 
         // 라벨 그리기
@@ -240,6 +209,7 @@ int main(int argc, char* argv[]) {
   while (1) {
     // (2) Load image from Pycam
     cv::Mat image;
+
     camera.grab();
     camera.retrieve(image);
     printf("카메라에서 이미지 불러옴\n");
@@ -280,9 +250,9 @@ int main(int argc, char* argv[]) {
     auto input_tensor = interpreter->typed_input_tensor<float>(0);
 
     for (int i=0; i<CAMSIZE; i++){
-      for (int j=0; j<CAMSIZE; j++){   
+      for (int j=0; j<CAMSIZE; j++){
         cv::Vec3b pixel = image.at<cv::Vec3b>(i, j);
-	for (int k=0; k<3; k++)
+        for (int k=0; k<3; k++)
           *(input_tensor + i * CAMSIZE*3 + j * 3 + k) = ((float)pixel[k])/255.0;
       }
     }
@@ -308,16 +278,6 @@ int main(int argc, char* argv[]) {
 
     std::vector<BoundingBox> results = decode_predictions(output_data, num_detections, num_classes, conf_threshold, iou_threshold, CAMSIZE, CAMSIZE);
 
-/*
-    // 결과 출력
-    for (const auto& box : results) {
-      std::cout << "BoundingBox: [x=" << box.x << ", y=" << box.y
-                << ", width=" << box.width << ", height=" << box.height
-                << ", confidence=" << box.confidence
-                << ", class_id=" << box.class_id << "]" << std::endl;
-    }
-*/
-
     // (9) Output visualize
     image = draw_detections(image, results, CAMSIZE, CAMSIZE);
 
@@ -331,8 +291,7 @@ int main(int argc, char* argv[]) {
 
   // (11) release
   camera.release();
-	cv::destroyAllWindows();
+        cv::destroyAllWindows();
   return 0;
 }
 
-  
