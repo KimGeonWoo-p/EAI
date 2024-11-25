@@ -275,7 +275,16 @@ int main(int argc, char* argv[]) {
 
     // (8) Output parsing
     TfLiteTensor* output_tensor = interpreter->tensor(interpreter->outputs()[0]);
-    const float* output_data = output_tensor->data.f; // 출력 데이터 접근
+
+	// 출력 텐서 정보
+    float output_scale = output_tensor->params.scale;
+    int output_zero_point = output_tensor->params.zero_point;
+    int output_length = output_tensor->bytes / sizeof(int8_t);
+    const int8_t* output_data_int8 = reinterpret_cast<const int8_t*>(output_tensor->data.raw);
+
+    // INT8 데이터를 FLOAT으로 변환
+    float* output_data = static_cast<float*>(malloc(output_length * sizeof(float)));
+    ConvertInt8ToFloat(output_data_int8, output_data, output_length, output_scale, output_zero_point);
 
     // 출력 텐서 크기 정보
     int num_detections = output_tensor->dims->data[1];
@@ -296,6 +305,9 @@ int main(int argc, char* argv[]) {
     if (key == 'q') {
         break;
     }
+	// 메모리 해제
+	free(input_data);
+    free(output_data);
   }
 
   // (11) release

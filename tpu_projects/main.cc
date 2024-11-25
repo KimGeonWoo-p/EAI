@@ -195,9 +195,32 @@ Mat draw_detections(Mat img, const vector<BoundingBox>& detections, int image_wi
     return img;
 }
 
+
+// uint8 -> float 변환 함수
+void ConvertUint8ToFloat(const uint8_t* uint8_data, float* float_data, int length, float scale, int zero_point) {
+    for (int i = 0; i < length; ++i) {
+        float_data[i] = (static_cast<int>(uint8_data[i]) - zero_point) * scale;
+    }
+}
+
+// float -> uint8 양자화 함수
+void QuantizeInput(const float* float_data, uint8_t* quantized_data, int length, float scale, int zero_point) {
+    for (int i = 0; i < length; ++i) {
+        quantized_data[i] = static_cast<uint8_t>(std::round(float_data[i] / scale) + zero_point);
+    }
+}
+
 int main(int argc, char* argv[]) {
-  const char* filename = "models/b416fp16.tflite";
-  int CAMSIZE = 416;
+  const char* filename;
+  int CAMSIZE;
+
+  if (argc < 3) {
+	filename = "models/b160-int8_edgetpu.tflite";
+	CAMSIZE = 160;
+  } else {
+	filename = argv[1];
+	CAMSIZE = atoi(argv[2]);
+  }
 
   // (1) Pycam setting
   VideoCapture cap("/dev/video0");
@@ -241,6 +264,14 @@ int main(int argc, char* argv[]) {
   // (6) delegate graph.
   interpreter->ModifyGraphWithDelegate(delegate);
 
+  interpreter->AllocateTensors();
+
+  // 입력 텐서 정보 가져오기
+  const TfLiteTensor* input_tensor = interpreter->input_tensor(0);
+  float scale = input_tensor->params.scale;
+  int zero_point = input_tensor->params.zero_point;
+  int input_length = input_tensor->bytes / sizeof(uint8_t);
+
   Mat image;
   while (cap.read(image)) {
     // 화면에 프레임 표시
@@ -260,47 +291,76 @@ int main(int argc, char* argv[]) {
     }
     printf("이미지 로드!\n");
 
-    // (8) Allocate tensor buffers.
-    TFLITE_MINIMAL_CHECK(interpreter->AllocateTensors() == kTfLiteOk);
-    printf("=== Pre-invoke Interpreter State ===\n");
+    // Push image to input tensor
+    // 입력 텐서를 uint8_t 포인터로 가져오기
+    auto input_uint8 = interpreter->typed_input_tensor<uint8_t>(0);
 
-    // (9) Push image to input tensor
-    auto input_tensor = interpreter->typed_input_tensor<float>(0);
-
+	// float 데이터를 uint8_t로 변환
     for (int i=0; i<CAMSIZE; i++){
       for (int j=0; j<CAMSIZE; j++){
         cv::Vec3b pixel = image.at<cv::Vec3b>(i, j);
-        for (int k=0; k<3; k++)
-          *(input_tensor + i * CAMSIZE*3 + j * 3 + k) = ((float)pixel[k])/255.0;
+        for (int k=0; k<3; k++) {
+		  float result = pixel[k] / 255.0;
+          input_uint8[(i*CAMSIZE+j)*3+k] = static_cast<uint8_t>(round(result/scale)+zero_point);
+		}
       }
-    }
+	}
 
+    cv::Mat float_image;
+    // 픽셀 값 정규화 (0~255 → 0~1)
+    image.convertTo(float_image, CV_32F, 1.0 / 255.0);
+
+    // 양자화
+    for (int i = 0; i < image.rows; i++) {
+      for (int j = 0; j < image.cols; j++) {
+        cv::Vec3f pixel = float_image.at<cv::Vec3f>(i, j);
+		for (int k = 0; k < 3; k++)
+          input_uint8[(i * image.cols + j) * 3 + k] = 
+			  static_cast<uint8_t>(std::round(pixel[k] / scale) + zero_point);
+      }
+	}
     printf("인풋텐서 생성 완료!\n");
 
-    // (10) Run inference
+    // Run inference
     TFLITE_MINIMAL_CHECK(interpreter->Invoke() == kTfLiteOk);
     printf("\n\n=== Post-invoke Interpreter State ===\n");
     printf("추론 실행!\n");
 
-    // (11) Output parsing
-    TfLiteTensor* output_tensor = interpreter->tensor(interpreter->outputs()[0]);
-    const float* output_data = output_tensor->data.f; // 출력 데이터 접근
+    // Output parsing
+    const TfLiteTensor* output_tensor = interpreter->output_tensor(0);
+    float output_scale = output_tensor->params.scale;
+    int output_zero_point = output_tensor->params.zero_point;
+    int output_length = output_tensor->bytes / sizeof(uint8_t);
+
+    const uint8_t* uint8_output = interpreter->typed_output_tensor<uint8_t>(0);
+
+    // 출력 데이터를 변환할 float 배열 동적 할당
+    float* output_float = static_cast<float*>(malloc(output_length * sizeof(float)));
+    if (!output_float) {
+      std::cerr << "Failed to allocate memory for float_output." << std::endl;
+      free(input_uint8);
+      return -1;
+    }
+
+    ConvertUint8ToFloat(uint8_output, output_float, output_length, output_scale, output_zero_point);
 
     // 출력 텐서 크기 정보
     int num_detections = output_tensor->dims->data[1];
     int num_classes = output_tensor->dims->data[2] - 5;
 
     // YOLO 디코딩
-    float conf_threshold = 0.5;
+    float conf_threshold = 0.2;
     float iou_threshold = 0.5;
 
-    std::vector<BoundingBox> results = decode_predictions(output_data, num_detections, num_classes, conf_threshold, iou_threshold, CAMSIZE, CAMSIZE);
+    std::vector<BoundingBox> results = decode_predictions(output_float, num_detections, num_classes, conf_threshold, iou_threshold, CAMSIZE, CAMSIZE);
 
     // (12) Output visualize
     image = draw_detections(image, results, CAMSIZE, CAMSIZE);
 
     cv::imshow("Yolo example with Pycam", image);
 
+	// 메모리 해제
+    free(output_float);
     char key = cv::waitKey(1);
     if (key == 'q') {
         break;
@@ -310,6 +370,7 @@ int main(int argc, char* argv[]) {
   // (13) release
   cap.release();
   destroyAllWindows();
+
   return 0;
 }
 
