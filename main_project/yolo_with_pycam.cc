@@ -16,6 +16,15 @@
 
 using namespace std;
 
+struct _box{
+    int class_id;
+    float confidence;
+    float x;
+    float y;
+    float width;
+    float height;
+} typedef BoundingBox;
+
 #define TFLITE_MINIMAL_CHECK(x)                              \
   if (!(x)) {                                                \
     fprintf(stderr, "Error at %s:%d\n", __FILE__, __LINE__); \
