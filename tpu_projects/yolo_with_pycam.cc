@@ -276,7 +276,7 @@ int main(int argc, char* argv[]) {
     printf("=== Pre-invoke Interpreter State ===\n");
 
     // (9) Push image to input tensor
-    auto input_tensor = interpreter->typed_input_tensor<float>(0);
+    auto input_tensor = interpreter->typed_input_tensor<uint8_t>(0);
 
     for (int i=0; i<CAMSIZE; i++){
       for (int j=0; j<CAMSIZE; j++){
