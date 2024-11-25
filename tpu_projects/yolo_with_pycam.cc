@@ -17,6 +17,7 @@
 // tpu활용을 위한 것
 #include <memory>
 #include <chrono>
+#include <cassert>
 #include "headers/edgetpu_c.h"
 #include "opencv2/opencv.hpp"
 
