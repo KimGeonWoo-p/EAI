@@ -1,0 +1,17 @@
+names:
+- '0'
+- '1'
+- '2'
+- '3'
+- '4'
+- '5'
+nc: 6
+roboflow:
+  license: CC BY 4.0
+  project: harmful-animals
+  url: https://universe.roboflow.com/kangms2023-ty0ap/harmful-animals/dataset/1
+  version: 1
+  workspace: kangms2023-ty0ap
+test: ../test/images
+train: harmful-animals-1/train/images
+val: harmful-animals-1/valid/images
