@@ -20,6 +20,9 @@
 #include "headers/edgetpu_c.h"
 #include "opencv2/opencv.hpp"
 
+// gpio
+#include "headers/gpio.h"
+
 using namespace std;
 using namespace cv;
 
@@ -223,6 +226,14 @@ int main(int argc, char* argv[]) {
 	CAMSIZE = atoi(argv[2]);
   }
 
+  if (wiringPiSetup () == -1) {
+	exit(EXIT_FAILURE);
+  }
+  if (setuid(getuid()) < 0) {
+    perror("Dropping privileges failed.\n");
+    exit(EXIT_FAILURE);
+  }
+
   // (1) Pycam setting
   VideoCapture cap("/dev/video0");
   // 카메라 연결 확인
@@ -275,7 +286,13 @@ int main(int argc, char* argv[]) {
 
   Mat image;
   bool detected = true;
+  float distance = -1;
+  
   while (1) {
+	distance = get_distance();
+	if (distance > 0 && distance <= 10)
+		detected = true;
+	
 	// 만약 사거리 안에 물체가 감지되는 경우에만 진행
 	if (!detected)
 		continue;
@@ -372,6 +389,8 @@ int main(int argc, char* argv[]) {
     if (key == 'q') {
         break;
     }
+
+	detected = false;
   }
 
   // (13) release
