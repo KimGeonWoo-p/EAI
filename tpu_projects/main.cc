@@ -112,13 +112,14 @@ vector<BoundingBox> decode_predictions(const float* output, int num_detections, 
             }
             
             float final_score = confidence * max_class_score;
-            if (final_score > conf_threshold) {
+
+			//만약 threshold보다 확률이 높으면서 포유류인 경우
+            if (final_score > conf_threshold && class_id > 1) {
                 // 좌표 변환: 정규화된 값을 이미지 크기 기준으로 변환
                 int x_pos = static_cast<int>(x * image_width);
                 int y_pos = static_cast<int>(y * image_height);
                 int box_width = static_cast<int>(width * image_width);
                 int box_height = static_cast<int>(height * image_height);
-
 
                 // OpenCV 박스 저장
                 boxes.emplace_back(x_pos, y_pos, box_width, box_height);
@@ -273,7 +274,13 @@ int main(int argc, char* argv[]) {
   int input_length = input_tensor->bytes / sizeof(uint8_t);
 
   Mat image;
-  while (cap.read(image)) {
+  bool detected = true;
+  while (1) {
+	// 만약 사거리 안에 물체가 감지되는 경우에만 진행
+	if (!detected)
+		continue;
+	cap.read(image);
+
     // 화면에 프레임 표시
     printf("카메라에서 이미지 불러옴\n");
     cvtColor(image, image, COLOR_BGR2RGB);
@@ -349,8 +356,8 @@ int main(int argc, char* argv[]) {
     int num_classes = output_tensor->dims->data[2] - 5;
 
     // YOLO 디코딩
-    float conf_threshold = 0.2;
-    float iou_threshold = 0.5;
+    float conf_threshold = 0.4;
+    float iou_threshold = 0.2;
 
     std::vector<BoundingBox> results = decode_predictions(output_float, num_detections, num_classes, conf_threshold, iou_threshold, CAMSIZE, CAMSIZE);
 
