@@ -53,6 +53,6 @@ float get_distance()
 
 	// Calculate rx-tx duration to change distance.
 	distance = (float) (RX_time - TX_time) * 0.017; //( 340m/2) *100cm/10^6 us
-	printf("Range %.2f cm.\n", distance);
+	//printf("Range %.2f cm.\n", distance);
 	return distance;
 }

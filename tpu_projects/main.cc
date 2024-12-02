@@ -285,17 +285,15 @@ int main(int argc, char* argv[]) {
   int input_length = input_tensor->bytes / sizeof(uint8_t);
 
   Mat image;
-  bool detected = true;
   float distance = -1;
   
   while (1) {
 	distance = get_distance();
-	if (distance > 0 && distance <= 10)
-		detected = true;
-	
-	// 만약 사거리 안에 물체가 감지되는 경우에만 진행
-	if (!detected)
+	if (distance < 0 || distance > 20)
 		continue;
+
+	printf("distance: %f\n", distance);
+
 	cap.read(image);
 
     // 화면에 프레임 표시
@@ -383,14 +381,12 @@ int main(int argc, char* argv[]) {
 
     cv::imshow("Yolo example with Pycam", image);
 
-	// 메모리 해제
+    // 메모리 해제
     free(output_float);
     char key = cv::waitKey(1);
     if (key == 'q') {
         break;
     }
-
-	detected = false;
   }
 
   // (13) release
