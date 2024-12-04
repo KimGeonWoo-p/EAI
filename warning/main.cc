@@ -279,7 +279,10 @@ int main(int argc, char* argv[]) {
   // (6) delegate graph.
   interpreter->ModifyGraphWithDelegate(delegate);
 
-  interpreter->AllocateTensors();
+  if (interpreter->AllocateTensors() != kTfLiteOk) {
+    std::cerr << "Failed to allocate tensors" << std::endl;
+    return -1;
+}
 
   // 입력 텐서 정보 가져오기
   const TfLiteTensor* input_tensor = interpreter->input_tensor(0);
@@ -292,122 +295,124 @@ int main(int argc, char* argv[]) {
   float distance = -1;
   
   while (1) {
-	distance = get_distance();
-	if (distance > 0 && distance <= 10)
-		detected = true;
-	
-	// 만약 사거리 안에 물체가 감지되는 경우에만 진행
-	if (!detected)
-		continue;
-	cap.read(image);
-
-    // 화면에 프레임 표시
-    printf("카메라에서 이미지 불러옴\n");
-    cvtColor(image, image, COLOR_BGR2RGB);
-
-    if (image.empty()) {
-      cerr << "Error capturing image" << endl;
-      break;
-    }
-
-    try {
-      resize(image, image, Size(CAMSIZE, CAMSIZE), 0, 0, INTER_LINEAR);
-    } catch (const cv::Exception& e) {
-      cerr << "OpenCV Exception: " << e.what() << "\n";
-      return -1;
-    }
-    printf("이미지 로드!\n");
-
-    // Push image to input tensor
-    // 입력 텐서를 uint8_t 포인터로 가져오기
-    auto input_uint8 = interpreter->typed_input_tensor<uint8_t>(0);
-
-	// float 데이터를 uint8_t로 변환
-    for (int i=0; i<CAMSIZE; i++){
-      for (int j=0; j<CAMSIZE; j++){
-        cv::Vec3b pixel = image.at<cv::Vec3b>(i, j);
-        for (int k=0; k<3; k++) {
-		  float result = pixel[k] / 255.0;
-          input_uint8[(i*CAMSIZE+j)*3+k] = static_cast<uint8_t>(round(result/scale)+zero_point);
-		}
+    distance = get_distance();
+    if (distance > 0 && distance <= 10) {
+      if(!cap.read(image)) {
+        std::cerr << "Failed to capture image" << std::endl;
+        break;
       }
-	}
 
-    cv::Mat float_image;
-    // 픽셀 값 정규화 (0~255 → 0~1)
-    image.convertTo(float_image, CV_32F, 1.0 / 255.0);
+      // 화면에 프레임 표시
+      printf("카메라에서 이미지 불러옴\n");
 
-    // 양자화
-    for (int i = 0; i < image.rows; i++) {
-      for (int j = 0; j < image.cols; j++) {
-        cv::Vec3f pixel = float_image.at<cv::Vec3f>(i, j);
-		for (int k = 0; k < 3; k++)
-          input_uint8[(i * image.cols + j) * 3 + k] = 
-			  static_cast<uint8_t>(std::round(pixel[k] / scale) + zero_point);
+      if (image.empty()) {
+        cerr << "Error capturing image" << endl;
+        break;
       }
-	}
-    printf("인풋텐서 생성 완료!\n");
 
-    // Run inference
-    TFLITE_MINIMAL_CHECK(interpreter->Invoke() == kTfLiteOk);
-    printf("\n\n=== Post-invoke Interpreter State ===\n");
-    printf("추론 실행!\n");
+      cvtColor(image, image, COLOR_BGR2RGB);
 
-    // Output parsing
-    const TfLiteTensor* output_tensor = interpreter->output_tensor(0);
-    float output_scale = output_tensor->params.scale;
-    int output_zero_point = output_tensor->params.zero_point;
-    int output_length = output_tensor->bytes / sizeof(uint8_t);
+      try {
+        resize(image, image, Size(CAMSIZE, CAMSIZE), 0, 0, INTER_LINEAR);
+      } catch (const cv::Exception& e) {
+        cerr << "OpenCV Exception: " << e.what() << "\n";
+        return -1;
+      }
+      printf("이미지 로드!\n");
 
-    const uint8_t* uint8_output = interpreter->typed_output_tensor<uint8_t>(0);
+      // Push image to input tensor
+      // 입력 텐서를 uint8_t 포인터로 가져오기
+      auto input_uint8 = interpreter->typed_input_tensor<uint8_t>(0);
 
-    // 출력 데이터를 변환할 float 배열 동적 할당
-    float* output_float = static_cast<float*>(malloc(output_length * sizeof(float)));
-    if (!output_float) {
-      std::cerr << "Failed to allocate memory for float_output." << std::endl;
-      free(input_uint8);
-      return -1;
+      cv::Mat float_image;
+      // 픽셀 값 정규화 (0~255 → 0~1)
+      image.convertTo(float_image, CV_32F, 1.0 / 255.0);
+
+      // 양자화
+      for (int i = 0; i < float_image.rows; i++) {
+        for (int j = 0; j < float_image.cols; j++) {
+          cv::Vec3f pixel = float_image.at<cv::Vec3f>(i, j);
+          for (int k = 0; k < 3; k++) {
+            input_uint8[(i * float_image.cols + j) * 3 + k] = 
+                static_cast<uint8_t>(std::round(pixel[k] / scale) + zero_point);
+          }
+        }
+      }
+      printf("인풋텐서 생성 완료!\n");
+
+      // Run inference
+      if (interpreter->Invoke() != kTfLiteOk) {
+        std::cerr << "Failed to invoke interpreter." << std::endl;
+        break;
+      }
+      printf("\n\n=== Post-invoke Interpreter State ===\n");
+      printf("추론 실행!\n");
+
+      // Output parsing
+      const TfLiteTensor* output_tensor = interpreter->output_tensor(0);
+      if (!output_tensor) {
+        std::cerr << "Failed to get output tensor." << std::endl;
+        break;
+      }
+      float output_scale = output_tensor->params.scale;
+      int output_zero_point = output_tensor->params.zero_point;
+      int output_length = output_tensor->bytes / sizeof(uint8_t);
+
+      const uint8_t* uint8_output = interpreter->typed_output_tensor<uint8_t>(0);
+      if (!uint8_output) {
+        std::cerr << "Failed to get output tensor data." << std::endl;
+        break;
+      }
+
+      // 출력 데이터를 변환할 float 배열 동적 할당
+      float* output_float = static_cast<float*>(malloc(output_length * sizeof(float)));
+      if (!output_float) {
+        std::cerr << "Failed to allocate memory for float_output." << std::endl;
+        free(input_uint8);
+        return -1;
+      }
+
+      ConvertUint8ToFloat(uint8_output, output_float, output_length, output_scale, output_zero_point);
+
+      // 출력 텐서 크기 정보
+      int num_detections = output_tensor->dims->data[1];
+      int num_classes = output_tensor->dims->data[2] - 5;
+
+      // YOLO 디코딩
+      float conf_threshold = 0.4;
+      float iou_threshold = 0.2;
+
+      std::vector<BoundingBox> results = decode_predictions(output_float, num_detections, num_classes, conf_threshold, iou_threshold, CAMSIZE, CAMSIZE);
+
+      // 부저 작동
+      if (!is_warning && !results.empty()) {
+        warning_on();
+        is_warning = true;
+      } else if (is_warning && results.empty()) {
+        warning_off();
+        is_warning = false;
+      }
+
+      // (12) Output visualize
+      image = draw_detections(image, results, CAMSIZE, CAMSIZE);
+
+      cv::imshow("Yolo example with Pycam", image);
+
+      // 메모리 해제
+      free(output_float);
     }
 
-    ConvertUint8ToFloat(uint8_output, output_float, output_length, output_scale, output_zero_point);
-
-    // 출력 텐서 크기 정보
-    int num_detections = output_tensor->dims->data[1];
-    int num_classes = output_tensor->dims->data[2] - 5;
-
-    // YOLO 디코딩
-    float conf_threshold = 0.4;
-    float iou_threshold = 0.2;
-
-    std::vector<BoundingBox> results = decode_predictions(output_float, num_detections, num_classes, conf_threshold, iou_threshold, CAMSIZE, CAMSIZE);
-
-    // 부저 작동
-    if (!is_warning && !result.empty()) {
-      warning_on();
-      is_warning = true;
-    } else if (is_warning && result.empty()) {
-      warning_off();
-      is_warning = false;
-    }
-
-    // (12) Output visualize
-    image = draw_detections(image, results, CAMSIZE, CAMSIZE);
-
-    cv::imshow("Yolo example with Pycam", image);
-
-	// 메모리 해제
-    free(output_float);
     char key = cv::waitKey(1);
     if (key == 'q') {
         break;
     }
 
-	detected = false;
   }
 
   // (13) release
   cap.release();
   destroyAllWindows();
+  edgetpu_free_delegate(delegate);
 
   return 0;
 }
