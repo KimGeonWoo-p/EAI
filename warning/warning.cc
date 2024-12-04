@@ -11,10 +11,10 @@ void pin_setting()
 
 void warning_on() 
 {
-    digitalWrite(BUZZER_PIN, HIGH);     
+    digitalWrite(BUZZER, HIGH);     
 }
 
 void warning_off()
 {
-    digitalWrite(BUZZER_PIN, LOW); 
+    digitalWrite(BUZZER, LOW); 
 }
