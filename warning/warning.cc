@@ -11,10 +11,13 @@ void pin_setting()
 
 void warning_on() 
 {
-    digitalWrite(BUZZER, HIGH);     
+    digitalWrite(BUZZER, HIGH);
+//    delay(100);
+    printf("light on!!\n");    
 }
 
 void warning_off()
 {
     digitalWrite(BUZZER, LOW); 
+    printf("light off!!\n");
 }
