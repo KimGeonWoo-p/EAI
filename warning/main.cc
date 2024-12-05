@@ -216,13 +216,6 @@ void ConvertUint8ToFloat(const uint8_t* uint8_data, float* float_data, int lengt
     }
 }
 
-// float -> uint8 양자화 함수
-void QuantizeInput(const float* float_data, uint8_t* quantized_data, int length, float scale, int zero_point) {
-    for (int i = 0; i < length; ++i) {
-        quantized_data[i] = static_cast<uint8_t>(std::round(float_data[i] / scale) + zero_point);
-    }
-}
-
 int main(int argc, char* argv[]) {
   const char* filename;
   int CAMSIZE;
@@ -325,17 +318,6 @@ int main(int argc, char* argv[]) {
     // Push image to input tensor
     // 입력 텐서를 uint8_t 포인터로 가져오기
     auto input_uint8 = interpreter->typed_input_tensor<uint8_t>(0);
-
-	// float 데이터를 uint8_t로 변환
-    for (int i=0; i<CAMSIZE; i++){
-      for (int j=0; j<CAMSIZE; j++){
-        cv::Vec3b pixel = image.at<cv::Vec3b>(i, j);
-        for (int k=0; k<3; k++) {
-		  float result = pixel[k] / 255.0;
-          input_uint8[(i*CAMSIZE+j)*3+k] = static_cast<uint8_t>(round(result/scale)+zero_point);
-		}
-      }
-	}
 
     cv::Mat float_image;
     // 픽셀 값 정규화 (0~255 → 0~1)
